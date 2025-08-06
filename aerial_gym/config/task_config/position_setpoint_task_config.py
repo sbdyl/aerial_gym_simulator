@@ -2,7 +2,7 @@ import torch
 
 
 class task_config:
-    seed = 1
+    seed = -1
     sim_name = "base_sim"
     env_name = "empty_env"
     robot_name = "base_quadrotor"

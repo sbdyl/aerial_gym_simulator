@@ -15,7 +15,7 @@ if __name__ == "__main__":
     )
     env_manager = SimBuilder().build_env(
         sim_name="base_sim",
-        env_name="env_with_obstacles",  # empty_env
+        env_name="empty_env",  # empty_env
         robot_name="base_quadrotor",  # "base_octarotor"
         controller_name="lee_acceleration_control",
         args=None,

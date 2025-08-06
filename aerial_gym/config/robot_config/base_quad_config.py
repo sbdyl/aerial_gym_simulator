@@ -5,8 +5,12 @@ from aerial_gym import AERIAL_GYM_DIRECTORY
 from aerial_gym.config.sensor_config.camera_config.base_depth_camera_config import (
     BaseDepthCameraConfig,
 )
+from aerial_gym.config.sensor_config.camera_config.pointcloud_depth_camera_config import (
+    PointCloudDepthCameraConfig,
+)
 from aerial_gym.config.sensor_config.lidar_config.base_lidar_config import (
-    BaseLidarConfig,
+    BaseLidarConfig, 
+    DepthLidarConfig,
 )
 
 from aerial_gym.config.sensor_config.camera_config.base_normal_faceID_camera_config import (
@@ -217,6 +221,11 @@ class BaseQuadWithLidarCfg(BaseQuadCfg):
         enable_lidar = True
         lidar_config = BaseLidarConfig
 
+class BaseQuadWithDepthLidarCfg(BaseQuadCfg):
+    class sensor_config(BaseQuadCfg.sensor_config):
+        enable_lidar = True
+        lidar_config = DepthLidarConfig
+
 class BaseQuadWithFaceIDNormalCameraCfg(BaseQuadCfg):
     class sensor_config(BaseQuadCfg.sensor_config):
         enable_camera = True
@@ -227,3 +236,7 @@ class BaseQuadWithStereoCameraCfg(BaseQuadCfg):
         enable_camera = True
         camera_config = StereoCameraConfig
 
+class BaseQuadWithPointCloudDepthCameraCfg(BaseQuadCfg):
+    class sensor_config(BaseQuadCfg.sensor_config):
+        enable_camera = True
+        camera_config = PointCloudDepthCameraConfig

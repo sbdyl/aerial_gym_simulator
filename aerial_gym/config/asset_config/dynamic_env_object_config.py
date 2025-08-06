@@ -117,7 +117,7 @@ class panel_asset_params(asset_state_params):
     collapse_fixed_joints = True
     per_link_semantic = False
     semantic_id = -1  # will be assigned incrementally per instance
-    color = [170, 66, 66]
+    color = [170, 66, 66] # test
 
 
 class thin_asset_params(asset_state_params):

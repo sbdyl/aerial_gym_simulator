@@ -121,19 +121,19 @@ class panel_asset_params(asset_state_params):
 
 
 class thin_asset_params(asset_state_params):
-    num_assets = 0
+    num_assets = 1
 
     asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/models/environment_assets/thin"
 
     collision_mask = 1  # objects with the same collision mask will not collide
 
     min_state_ratio = [
-        0.3,
-        0.05,
-        0.05,
-        -np.pi,
-        -np.pi,
-        -np.pi,
+        0.49,
+        0.49,
+        0.15,
+        0.0,
+        0.0,
+        0.0,
         1.0,
         0.0,
         0.0,
@@ -143,12 +143,12 @@ class thin_asset_params(asset_state_params):
         0.0,
     ]
     max_state_ratio = [
-        0.85,
-        0.95,
-        0.95,
-        np.pi,
-        np.pi,
-        np.pi,
+        0.51,
+        0.49,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
         1.0,
         0.0,
         0.0,
@@ -254,6 +254,45 @@ class object_asset_params(asset_state_params):
 
     # color = [80,255,100]
 
+class dynamic_uav_asset_params(asset_state_params):
+    num_assets = 1
+    asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/robots/quad"
+    file = "model.urdf"
+    min_state_ratio = [
+        0.30,
+        0.05,
+        0.05,
+        -np.pi,
+        -np.pi,
+        -np.pi,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ]
+
+    max_state_ratio = [
+        0.85,
+        0.9,
+        0.9,
+        np.pi,
+        np.pi,
+        np.pi,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ]
+
+    keep_in_env = False
+    per_link_semantic = False
+    semantic_id = -1  # will be assigned incrementally per instance
 
 class left_wall(asset_state_params):
     num_assets = 1

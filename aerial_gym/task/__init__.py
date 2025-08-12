@@ -20,6 +20,10 @@ from aerial_gym.config.task_config.position_setpoint_task_config import (
     task_config as position_setpoint_task_config,
 )
 
+from aerial_gym.config.task_config.position_setpoint_task_config_x500 import (
+    task_config as position_setpoint_task_config_x500,
+)
+
 from aerial_gym.config.task_config.position_setpoint_task_sim2real_config import (
     task_config as position_setpoint_task_sim2real_config,
 )
@@ -41,6 +45,9 @@ from aerial_gym.registry.task_registry import task_registry
 
 task_registry.register_task(
     "position_setpoint_task", PositionSetpointTask, position_setpoint_task_config
+)
+task_registry.register_task(
+    "position_setpoint_task_x500", PositionSetpointTask, position_setpoint_task_config_x500
 )
 task_registry.register_task(
     "position_setpoint_task_sim2real",

@@ -179,8 +179,8 @@ class BaseQuadCfg:
         class motor_model_config:
             use_rps = True
 
-            motor_thrust_constant_min = 0.00000926312
-            motor_thrust_constant_max = 0.00001826312
+            motor_thrust_constant_min = 0.0000926312
+            motor_thrust_constant_max = 0.0001826312
 
             motor_time_constant_increasing_min = 0.04
             motor_time_constant_increasing_max = 0.04
@@ -240,3 +240,37 @@ class BaseQuadWithPointCloudDepthCameraCfg(BaseQuadCfg):
     class sensor_config(BaseQuadCfg.sensor_config):
         enable_camera = True
         camera_config = PointCloudDepthCameraConfig
+
+class x500Cfg(BaseQuadCfg):
+    class robot_asset(BaseQuadCfg.robot_asset):
+        asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/robots/x500"
+        file = "x500.urdf"
+        name = "x500"
+
+    class control_allocator_config(BaseQuadCfg.control_allocator_config):
+        allocation_matrix = [
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [-0.174, -0.174, 0.174, 0.174],
+            [-0.174, 0.174, 0.174, -0.174],
+            [-0.01, 0.01, -0.01, 0.01],
+        ]
+
+        class motor_model_config(BaseQuadCfg.control_allocator_config.motor_model_config):
+            use_rps = True
+
+            motor_thrust_constant_min = 3.375e-04
+            motor_thrust_constant_max = 3.375e-04
+
+            motor_time_constant_increasing_min = 0.0125
+            motor_time_constant_increasing_max = 0.0125
+
+            motor_time_constant_decreasing_min = 0.025
+            motor_time_constant_decreasing_max = 0.025
+
+            max_thrust_rate = 1000
+            thrust_to_torque_ratio = 0.016
+
+            max_thrust = 40
+            min_thrust = 0

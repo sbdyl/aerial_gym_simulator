@@ -1,0 +1,148 @@
+<?xml version="1.0"?>
+<robot name="quadrotor">
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 .025" rpy="0 0 3.141592654"/>
+      <geometry>
+        <mesh scale="1 1 1" filename="./meshes/NXP-HGD-CF.dae"/>
+      </geometry>
+      <material name="Blue">
+        <color rgba="0.0 0.0 1.0 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <sphere radius="0.29607315985291854"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="2.0"/>
+      <inertia ixx="0.02166666666666667" ixy="0" ixz="0" iyy="0.02166666666666667" iyz="0" izz="0.04000000000000001"/>
+    </inertial>
+  </link>
+  <link name="arm_motor_0">
+    <inertial>
+      <mass value="0.0"/>
+      <inertia ixx="0.0" ixy="0.0" ixz="0.0" iyx="0.0" iyy="0.0" iyz="0.0" izx="0.0" izy="0.0" izz="0.0"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_arm_motor_0" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="arm_motor_0"/>
+    <origin xyz="0.087 -0.087 0.0" rpy="-1.5707963267948968 2.220446049250313e-16 -2.3561944901923453"/>
+  </joint>
+  <link name="motor_0">
+    <visual>
+      <origin xyz="0 0 -0.06 " rpy="0 0 -.45"/>
+      <geometry>
+        <mesh scale="1 1 1" filename="./meshes/5010Base.dae"/>
+      </geometry>
+      <material name="Red">
+        <color rgba="1.0 0.0 0.0 1.0"/>
+      </material>
+    </visual>
+    <inertial>
+      <mass value="0.016076923076923075"/>
+      <inertia ixx="3.8464910483993325e-07" ixy="0" ixz="0" iyy="2.6115851691700804e-05" iyz="0" izz="2.649858234714004e-05"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_motor_0" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="motor_0"/>
+    <origin xyz="0.174 -0.174 0.06" rpy="0.0 0.0 0.0"/>
+  </joint>
+  <link name="arm_motor_1">
+    <inertial>
+      <mass value="0.0"/>
+      <inertia ixx="0.0" ixy="0.0" ixz="0.0" iyx="0.0" iyy="0.0" iyz="0.0" izx="0.0" izy="0.0" izz="0.0"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_arm_motor_1" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="arm_motor_1"/>
+    <origin xyz="-0.087 -0.087 0.0" rpy="1.5707963267948968 2.220446049250313e-16 -0.7853981633974482"/>
+  </joint>
+  <link name="motor_1">
+    <visual>
+      <origin xyz="0 0 -0.06 " rpy="0 0 -.45"/>
+      <geometry>
+        <mesh scale="1 1 1" filename="./meshes/5010Base.dae"/>
+      </geometry>
+      <material name="Red">
+        <color rgba="1.0 0.0 0.0 1.0"/>
+      </material>
+    </visual>
+    <inertial>
+      <mass value="0.016076923076923075"/>
+      <inertia ixx="3.8464910483993325e-07" ixy="0" ixz="0" iyy="2.6115851691700804e-05" iyz="0" izz="2.649858234714004e-05"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_motor_1" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="motor_1"/>
+    <origin xyz="-0.174 -0.174 0.06" rpy="0.0 0.0 0.0"/>
+  </joint>
+  <link name="arm_motor_2">
+    <inertial>
+      <mass value="0.0"/>
+      <inertia ixx="0.0" ixy="0.0" ixz="0.0" iyx="0.0" iyy="0.0" iyz="0.0" izx="0.0" izy="0.0" izz="0.0"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_arm_motor_2" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="arm_motor_2"/>
+    <origin xyz="-0.087 0.087 0.0" rpy="1.5707963267948968 0.0 -2.3561944901923453"/>
+  </joint>
+  <link name="motor_2">
+    <visual>
+      <origin xyz="0 0 -0.06 " rpy="0 0 -.45"/>
+      <geometry>
+        <mesh scale="1 1 1" filename="./meshes/5010Base.dae"/>
+      </geometry>
+      <material name="Red">
+        <color rgba="1.0 0.0 0.0 1.0"/>
+      </material>
+    </visual>
+    <inertial>
+      <mass value="0.016076923076923075"/>
+      <inertia ixx="3.8464910483993325e-07" ixy="0" ixz="0" iyy="2.6115851691700804e-05" iyz="0" izz="2.649858234714004e-05"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_motor_2" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="motor_2"/>
+    <origin xyz="-0.174 0.174 0.06" rpy="0.0 0.0 0.0"/>
+  </joint>
+  <link name="arm_motor_3">
+    <inertial>
+      <mass value="0.0"/>
+      <inertia ixx="0.0" ixy="0.0" ixz="0.0" iyx="0.0" iyy="0.0" iyz="0.0" izx="0.0" izy="0.0" izz="0.0"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_arm_motor_3" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="arm_motor_3"/>
+    <origin xyz="0.087 0.087 0.0" rpy="-1.5707963267948968 0.0 -0.7853981633974482"/>
+  </joint>
+  <link name="motor_3">
+   <visual>
+      <origin xyz="0 0 -0.06 " rpy="0 0 -.45"/>
+      <geometry>
+        <mesh scale="1 1 1" filename="./meshes/5010Base.dae"/>
+      </geometry>
+      <material name="Red">
+        <color rgba="1.0 0.0 0.0 1.0"/>
+      </material>
+    </visual>
+    <inertial>
+      <mass value="0.016076923076923075"/>
+      <inertia ixx="3.8464910483993325e-07" ixy="0" ixz="0" iyy="2.6115851691700804e-05" iyz="0" izz="2.649858234714004e-05"/>
+    </inertial>
+  </link>
+  <joint name="base_link_to_motor_3" type="fixed" dont_collapse="false">
+    <parent link="base_link"/>
+    <child link="motor_3"/>
+    <origin xyz="0.174 0.174 0.06" rpy="0.0 0.0 0.0"/>
+  </joint>
+</robot>

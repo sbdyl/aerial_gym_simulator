@@ -80,6 +80,8 @@ class PositionSetpointTask(BaseTask):
         self.target_position = torch.zeros(
             (self.sim_env.num_envs, 3), device=self.device, requires_grad=False
         )
+        self.target_position[:, 2] = 1.0
+        self.debug_counter = 0
 
         # Get the dictionary once from the environment and use it to get the observations later.
         # This is to avoid constant retuning of data back anf forth across functions as the tensors update and can be read in-place.
@@ -93,12 +95,12 @@ class PositionSetpointTask(BaseTask):
             {"observations": Box(low=-1.0, high=1.0, shape=(13,), dtype=np.float32)}
         )
         self.action_space = Box(
-            low=-1.0,
-            high=1.0,
+            low=-np.pi / 2.0,
+            high=np.pi / 2.0,
             shape=(self.task_config.action_space_dim,),
             dtype=np.float32,
         )
-        # self.action_transformation_function = self.sim_env.robot_manager.robot.action_transformation_function
+        self.action_transformation_function = self.task_config.action_transformation_function
 
         self.num_envs = self.sim_env.num_envs
 
@@ -134,6 +136,7 @@ class PositionSetpointTask(BaseTask):
 
     def reset(self):
         self.target_position[:, 0:3] = 0.0  # torch.rand_like(self.target_position) * 10.0
+        self.target_position[:, 2] = 1.0
         self.infos = {}
         self.sim_env.reset()
         return self.get_return_tuple()
@@ -142,6 +145,7 @@ class PositionSetpointTask(BaseTask):
         self.target_position[:, 0:3] = (
             0.0  # (torch.rand_like(self.target_position[env_ids]) * 10.0)
         )
+        self.target_position[:, 2] = 1.0
         self.infos = {}
         self.sim_env.reset_idx(env_ids)
         return
@@ -152,7 +156,8 @@ class PositionSetpointTask(BaseTask):
     def step(self, actions):
         self.counter += 1
         self.prev_actions[:] = self.actions
-        self.actions = actions
+        transformed_action = self.action_transformation_function(actions)
+        self.actions = transformed_action
 
         # this uses the action, gets observations
         # calculates rewards, returns tuples
@@ -196,8 +201,10 @@ class PositionSetpointTask(BaseTask):
             self.target_position - self.obs_dict["robot_position"]
         )
         self.task_obs["observations"][:, 3:7] = self.obs_dict["robot_orientation"]
-        self.task_obs["observations"][:, 7:10] = self.obs_dict["robot_body_linvel"]
-        self.task_obs["observations"][:, 10:13] = self.obs_dict["robot_body_angvel"]
+        # self.task_obs["observations"][:, 7:10] = self.obs_dict["robot_body_linvel"]
+        # self.task_obs["observations"][:, 10:13] = self.obs_dict["robot_body_angvel"]
+        self.task_obs["observations"][:, 7:10] = self.obs_dict["robot_linvel"]
+        self.task_obs["observations"][:, 10:13] = self.obs_dict["robot_angvel"]
         self.task_obs["rewards"] = self.rewards
         self.task_obs["terminations"] = self.terminations
         self.task_obs["truncations"] = self.truncations
@@ -226,6 +233,7 @@ class PositionSetpointTask(BaseTask):
             self.actions,
             self.prev_actions,
             self.task_config.reward_parameters,
+            self.debug_counter
         )
 
 
@@ -241,7 +249,7 @@ def exp_penalty_func(x, gain, exp):
     return gain * (torch.exp(-exp * x * x) - 1)
 
 
-@torch.jit.script
+# @torch.jit.script
 def compute_reward(
     pos_error,
     lin_vels,
@@ -252,31 +260,45 @@ def compute_reward(
     current_action,
     prev_actions,
     parameter_dict,
+    debug_counter
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Dict[str, Tensor]) -> Tuple[Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Dict[str, Tensor], int) -> Tuple[Tensor, Tensor]
     
     dist = torch.norm(pos_error, dim=1)
-
     pos_reward = exp_func(dist, 3.0, 8.0) + exp_func(dist, 2.0, 4.0)
-
-    dist_reward = (20 - dist) / 40.0  
-
+    dist_reward = (20 - dist) / 40.0
+    
     ups = quat_axis(robot_quats, 2)
-    tiltage = torch.abs(1 - ups[..., 2])
-    up_reward = 0.2 / (0.1 + tiltage * tiltage)
+    
 
+    up_reward = 2.0 * torch.sigmoid(5 * ups[..., 2]) - 1.0 
+    up_reward = up_reward * 0.4  
+    
+    severe_flip_penalty = torch.where(
+        ups[..., 2] < -0.4,
+        -15.0 * torch.abs(ups[..., 2] + 0.4),  # 越倒置惩罚越重
+        torch.zeros_like(ups[..., 2])
+    )
+    up_reward += severe_flip_penalty
+
+
+    debug_counter += 1
+    if debug_counter % 100 == 0:
+        print(f"up_z range: [{ups.min():.3f}, {ups.max():.3f}]")
+        print(f"up_reward range: [{up_reward.min():.3f}, {up_reward.max():.3f}]")
+        print(f"pos_reward mean: {pos_reward.mean():.3f}")
+        print(f"crash rate: {crashes.float().mean():.3f}")
+
+    
     spinnage = torch.norm(robot_angvels, dim=1)
     ang_vel_reward = (1.0 / (1.0 + spinnage * spinnage)) * 3
-
+    
     total_reward = (
         pos_reward + dist_reward + pos_reward * (up_reward + ang_vel_reward)
     )
     total_reward[:] = curriculum_level_multiplier * total_reward
-
-    crashes[:] = torch.where(dist > 8.0, torch.ones_like(crashes), crashes)
-
+    
+    crashes[:] = torch.where(dist > 6.0, torch.ones_like(crashes), crashes)
     total_reward[:] = torch.where(crashes > 0.0, -20 * torch.ones_like(total_reward), total_reward)
     
-    
-
     return total_reward, crashes

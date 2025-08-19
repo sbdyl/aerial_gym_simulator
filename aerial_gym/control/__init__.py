@@ -3,6 +3,7 @@ from aerial_gym.control.controllers.acceleration_control import (
     LeeAccelerationController,
 )
 from aerial_gym.control.controllers.attitude_control import LeeAttitudeController
+from aerial_gym.control.controllers.PX4_attitude_control import PX4AttitudeController
 from aerial_gym.control.controllers.velocity_control import LeeVelocityController
 from aerial_gym.control.controllers.position_control import LeePositionController
 from aerial_gym.control.controllers.velocity_steeing_angle_controller import (
@@ -42,6 +43,9 @@ controller_registry.register_controller(
 )
 controller_registry.register_controller(
     "lee_attitude_control", LeeAttitudeController, lee_controller_config
+)
+controller_registry.register_controller(
+    "px4_attitude_control", PX4AttitudeController, lee_controller_config
 )
 controller_registry.register_controller(
     "lee_velocity_control", LeeVelocityController, lee_controller_config

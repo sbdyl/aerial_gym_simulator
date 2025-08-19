@@ -39,12 +39,12 @@ class BaseQuadCfg:
             0,  # -np.pi / 6,
             -np.pi / 6,
             1.0,
-            -0.2,
-            -0.2,
-            -0.2,
-            -0.2,
-            -0.2,
-            -0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
         ]
         max_init_state = [
             0.2,
@@ -54,12 +54,12 @@ class BaseQuadCfg:
             0,  # np.pi / 6,
             np.pi / 6,
             1.0,
-            0.2,
-            0.2,
-            0.2,
-            0.2,
-            0.2,
-            0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
         ]
 
     class sensor_config:
@@ -188,7 +188,7 @@ class BaseQuadCfg:
             motor_time_constant_decreasing_min = 0.04
             motor_time_constant_decreasing_max = 0.04
 
-            max_thrust = 2
+            max_thrust = 8.549 
             min_thrust = 0
 
             max_thrust_rate = 100000.0
@@ -254,23 +254,30 @@ class x500Cfg(BaseQuadCfg):
             [1.0, 1.0, 1.0, 1.0],
             [-0.174, -0.174, 0.174, 0.174],
             [-0.174, 0.174, 0.174, -0.174],
-            [-0.01, 0.01, -0.01, 0.01],
+            [-0.016, 0.016, -0.016, 0.016],
         ]
 
         class motor_model_config(BaseQuadCfg.control_allocator_config.motor_model_config):
-            use_rps = True
-
-            motor_thrust_constant_min = 3.375e-04
-            motor_thrust_constant_max = 3.375e-04
-
-            motor_time_constant_increasing_min = 0.0125
-            motor_time_constant_increasing_max = 0.0125
-
-            motor_time_constant_decreasing_min = 0.025
-            motor_time_constant_decreasing_max = 0.025
-
-            max_thrust_rate = 1000
-            thrust_to_torque_ratio = 0.016
-
-            max_thrust = 40
+            use_rps = True  
+            # 推力常数转换
+            motor_thrust_constant_min = 3.374844e-4  # motorConstant × (2π)²
+            motor_thrust_constant_max = 3.374844e-4
+            
+            # 推力范围
+            max_thrust = 8.549  # thrust_constant × (max_RPS)²
             min_thrust = 0
+            
+            # 时间常数（直接复制）
+            motor_time_constant_increasing_min = 0.0125  # timeConstantUp
+            motor_time_constant_increasing_max = 0.0125
+            motor_time_constant_decreasing_min = 0.025   # timeConstantDown
+            motor_time_constant_decreasing_max = 0.025
+            
+            # 推力变化率（估算）
+            max_thrust_rate = 683.9  # max_thrust / min(time_constants)
+            
+            # 扭矩比（直接复制）
+            thrust_to_torque_ratio = 0.016  # momentConstant
+            
+            # 积分方法
+            use_discrete_approximation = False

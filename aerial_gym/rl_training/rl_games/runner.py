@@ -34,6 +34,8 @@ class ExtractObsWrapper(gym.Wrapper):
     def step(self, action):
         observations, rewards, terminated, truncated, infos = super().step(action)
 
+        # print(f"observations: {observations}, prev_action: {action}")
+
         dones = torch.where(
             terminated | truncated,
             torch.ones_like(terminated),

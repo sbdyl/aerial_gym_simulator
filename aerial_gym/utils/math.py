@@ -215,6 +215,14 @@ def torch_random_dir_2(shape, device):
     angle = torch_rand_float(-torch.pi, torch.pi, shape, device).squeeze(-1)
     return torch.stack([torch.cos(angle), torch.sin(angle)], dim=-1)
 
+@torch.jit.script
+def quaternion_to_euler(q: torch.Tensor):
+
+    # q0 = x, q1 = y, q2 = z, q3 = w
+    roll = torch.atan2(2 * (q[:, 3] * q[:, 0] + q[:, 1] * q[:, 2]), 1 - 2 * (q[:, 0]**2 + q[:, 1]**2))
+    pitch = torch.asin(2 * (q[:, 3] * q[:, 1] - q[:, 2] * q[:, 0]))
+    yaw = torch.atan2(2 * (q[:, 3] * q[:, 2] + q[:, 0] * q[:, 1]), 1 - 2 * (q[:, 1]**2 + q[:, 2]**2))
+    return torch.stack([roll, pitch, yaw], dim=-1)
 
 @torch.jit.script
 def tensor_clamp(t, min_t, max_t):
@@ -324,6 +332,32 @@ def quat_apply(a, b):
 def quat_apply_inverse(a, b):
     return quat_apply(quat_inverse(a), b)
 
+@torch.jit.script
+def quat_error(q_tar, q_cur):
+    # type: (Tensor, Tensor) -> Tensor
+    """
+    计算两个四元数之间的误差
+    
+    Args:
+        q_tar: 目标四元数 tensor [batch_size, 4] (x, y, z, w)
+        q_cur: 当前四元数 tensor [batch_size, 4] (x, y, z, w)
+    
+    Returns:
+        四元数误差 tensor [batch_size, 4] (x, y, z, w)
+    """
+    # 归一化四元数
+    q_tar_norm = normalize(q_tar)
+    q_cur_norm = normalize(q_cur)
+    
+    # 计算误差: q_error = q_tar_conj * q_cur
+    q_tar_conj = quat_conjugate(q_tar_norm)
+    q_error = quat_mul(q_tar_conj, q_cur_norm)
+    
+    # 确保选择最短路径 (w > 0)
+    flip_mask = q_error[..., -1] < 0
+    q_error = torch.where(flip_mask.unsqueeze(-1), -q_error, q_error)
+    
+    return q_error
 
 @torch.jit.script
 def quat_rotate(q, v):

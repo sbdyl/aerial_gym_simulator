@@ -4,6 +4,7 @@ import torch
 import numpy as np
 
 from aerial_gym.utils.math import *
+from aerial_gym.utils.dynamic_obs_controller import DynamicObsController
 
 from aerial_gym.utils.logging import CustomLogger
 
@@ -19,7 +20,7 @@ def dict_to_class(dict):
     return type("ClassFromDict", (object,), dict)
 
 
-class NavigationTask(BaseTask):
+class HardTargetTask(BaseTask):
     def __init__(
         self, task_config, seed=None, num_envs=None, headless=None, device=None, use_warp=None
     ):
@@ -63,9 +64,25 @@ class NavigationTask(BaseTask):
             headless=self.task_config.headless,
         )
 
+        self.lower_bound = None
+        self.upper_bound = None
+        self.dt = self.sim_env.sim_config.sim.dt
+
+        self.update_bounds()
+
         self.target_position = torch.zeros(
             (self.sim_env.num_envs, 3), device=self.device, requires_grad=False
         )
+        self.target_velocity = torch.zeros(
+            (self.sim_env.num_envs, 3), device=self.device, dtype=torch.float32
+        )
+        self.obs_indice = self.find_asset_indices_by_type('dynamic_uav')
+        self.update_obs_state()
+
+        safety_margin = 2.0  
+        controller_min_pos = self.lower_bound + safety_margin
+        controller_max_pos = self.upper_bound - safety_margin
+        max_obs_velocity = 2.0  
 
         self.target_min_ratio = torch.tensor(
             self.task_config.target_min_ratio, device=self.device, requires_grad=False
@@ -90,6 +107,18 @@ class NavigationTask(BaseTask):
             )
         else:
             self.vae_model = lambda x: x
+
+        self.dynamic_obs_controller = DynamicObsController(
+            min_position=controller_min_pos,
+            max_position=controller_max_pos,
+            max_velocity=max_obs_velocity,
+            num_envs=self.sim_env.num_envs,
+            device=self.device,
+            dt=self.dt,
+            waypoint_update_freq=1000,  # 每200步更新一次路径点
+            smoothing_factor=0.85,     # 速度平滑因子
+            noise_scale=0.2            # 随机噪声强度
+        )
 
         # Get the dictionary once from the environment and use it to get the observations later.
         # This is to avoid constant retuning of data back anf forth across functions as the tensors update and can be read in-place.
@@ -126,7 +155,7 @@ class NavigationTask(BaseTask):
         )
         self.action_space = Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
         self.action_transformation_function = self.task_config.action_transformation_function
-
+        self.obs_twist = torch.zeros((self.sim_env.num_envs, self.sim_env.IGE_env.num_assets_per_env - 1, 6), device=self.device)
         self.num_envs = self.sim_env.num_envs
 
         # Currently only the "observations" are sent to the actor and critic.
@@ -156,11 +185,49 @@ class NavigationTask(BaseTask):
 
         self.num_task_steps = 0
 
+    def update_bounds(self):
+        self.lower_bound = self.sim_env.IGE_env.env_lower_bound
+        self.upper_bound = self.sim_env.IGE_env.env_upper_bound
+
+    def update_obs_state(self):
+        target_position_all = self.sim_env.get_obs_position()
+        target_velocity_all = self.sim_env.get_obs_linvel()
+        for i in range(self.sim_env.num_envs):
+            self.target_position[i] = target_position_all[i, self.obs_indice[i][0]]
+            self.target_velocity[i] = target_velocity_all[i, self.obs_indice[i][0]]
+        
+    def find_asset_indices_by_type(self, asset_type):
+        """根据asset类型查找所有环境中的索引，返回二维列表[env_idx][asset_idx] = asset_id"""
+
+        num_envs = len(self.sim_env.global_asset_dicts)
+        all_indices = [[] for _ in range(num_envs)]
+        
+        for env_idx, asset_dicts in enumerate(self.sim_env.global_asset_dicts):
+            for asset_idx, asset_dict in enumerate(asset_dicts):
+                if asset_dict['asset_type'] == asset_type:
+                    all_indices[env_idx].append(asset_idx)  
+        return all_indices
+    
     def close(self):
         self.sim_env.delete_env()
 
     def reset(self):
         self.reset_idx(torch.arange(self.sim_env.num_envs))
+        self.update_obs_state()
+        self.update_bounds()
+        if self.dynamic_obs_controller is not None:
+            # 获取新的边界，留出安全边距
+            safety_margin = 2.0
+            controller_min_pos = self.lower_bound + safety_margin
+            controller_max_pos = self.upper_bound - safety_margin
+            
+            # 更新控制器边界
+            self.dynamic_obs_controller.update_bounds(controller_min_pos, controller_max_pos)
+            
+            # 使用从环境获取的真实位置重置控制器
+            self.dynamic_obs_controller.reset(initial_positions=self.target_position)
+
+        self.infos = {}
         return self.get_return_tuple()
 
     def reset_idx(self, env_ids):
@@ -170,9 +237,22 @@ class NavigationTask(BaseTask):
             max=self.obs_dict["env_bounds_max"][env_ids],
             ratio=target_ratio[env_ids],
         )
-        # logger.warning(f"reset envs: {env_ids}")
+        self.update_obs_state()
+        self.update_bounds()
+        if self.dynamic_obs_controller is not None:
+            # 获取新的边界，留出安全边距
+            safety_margin = 2.0
+            controller_min_pos = self.lower_bound + safety_margin
+            controller_max_pos = self.upper_bound - safety_margin
+            
+            # 更新控制器边界
+            self.dynamic_obs_controller.update_bounds(controller_min_pos, controller_max_pos)
+            
+            # 使用从环境获取的真实位置重置指定环境的控制器
+            self.dynamic_obs_controller.reset(env_ids, initial_positions=self.target_position[env_ids])
+        
         self.infos = {}
-        return
+        return 
 
     def render(self):
         return self.sim_env.render()
@@ -230,6 +310,21 @@ class NavigationTask(BaseTask):
                 f"Number of common instances: {torch.count_nonzero(torch.logical_and(crashes, timeouts))}"
             )
         return
+    
+    def compute_obs_next_action(self):
+        """计算动态障碍物的下一步动作"""
+        self.obs_twist = torch.zeros((self.sim_env.num_envs, self.sim_env.IGE_env.num_assets_per_env - 1, 6), device="cuda:0")
+        
+        if self.dynamic_obs_controller is not None:
+            # 获取当前动态障碍物的位置
+            current_obs_positions = self.target_position.clone()  # 使用已更新的目标位置
+            
+            # 获取控制器输出的twist
+            controller_twist = self.dynamic_obs_controller.get_twist(current_obs_positions)
+            for env_idx in range(self.sim_env.num_envs):
+                obs_asset_idx = self.obs_indice[env_idx][0]
+
+                self.obs_twist[env_idx, obs_asset_idx] = controller_twist[env_idx]
 
     def check_and_update_curriculum_level(self, successes, crashes, timeouts):
         self.success_aggregate += torch.sum(successes)
@@ -308,7 +403,10 @@ class NavigationTask(BaseTask):
 
         transformed_action = self.action_transformation_function(actions)
         logger.debug(f"raw_action: {actions[0]}, transformed action: {transformed_action[0]}")
-        self.sim_env.step(actions=transformed_action)
+        self.compute_obs_next_action()
+        
+        self.sim_env.step(actions=transformed_action, env_actions=self.obs_twist)
+        self.update_obs_state()
 
         # This step must be done since the reset is done after the reward is calculated.
         # This enables the robot to send back an updated state, and an updated observation to the RL agent after the reset.
@@ -394,11 +492,12 @@ class NavigationTask(BaseTask):
         self.task_obs["observations"][:, 4] = perturbed_euler_angles[:, 0]
         self.task_obs["observations"][:, 5] = perturbed_euler_angles[:, 1]
         self.task_obs["observations"][:, 6] = 0.0
-        self.task_obs["observations"][:, 7:10] = self.obs_dict["robot_body_linvel"]
-        self.task_obs["observations"][:, 10:13] = self.obs_dict["robot_body_angvel"]
+        self.task_obs["observations"][:, 7:10] = self.obs_dict["robot_linvel"]
+        self.task_obs["observations"][:, 10:13] = self.obs_dict["robot_angvel"]
         self.task_obs["observations"][:, 13:17] = self.obs_dict["robot_actions"]
+        self.task_obs["observations"][:, 17:20] = self.target_velocity
         if self.task_config.vae_config.use_vae:
-            self.task_obs["observations"][:, 17:] = self.image_latents
+            self.task_obs["observations"][:, 20:] = self.image_latents
         # self.task_obs["rewards"] = self.rewards
         # self.task_obs["terminations"] = self.terminations
         # self.task_obs["truncations"] = self.truncations
@@ -408,8 +507,11 @@ class NavigationTask(BaseTask):
     def compute_rewards_and_crashes(self, obs_dict):
         robot_position = obs_dict["robot_position"]
         target_position = self.target_position
+        robot_linvel = obs_dict["robot_linvel"]
         robot_vehicle_orientation = obs_dict["robot_vehicle_orientation"]
         robot_orientation = obs_dict["robot_orientation"]
+        angular_velocity = obs_dict["robot_angvel"]
+
         target_orientation = torch.zeros_like(robot_orientation, device=self.device)
         target_orientation[:, 3] = 1.0
         self.pos_error_vehicle_frame_prev[:] = self.pos_error_vehicle_frame
@@ -419,6 +521,8 @@ class NavigationTask(BaseTask):
         return compute_reward(
             self.pos_error_vehicle_frame,
             self.pos_error_vehicle_frame_prev,
+            robot_linvel,
+            angular_velocity,
             obs_dict["crashes"],
             obs_dict["robot_actions"],
             obs_dict["robot_prev_actions"],
@@ -447,13 +551,15 @@ def exponential_penalty_function(
 def compute_reward(
     pos_error,
     prev_pos_error,
+    robot_linvel,
+    angular_velocity,
     crashes,
     action,
     prev_action,
     curriculum_progress_fraction,
     parameter_dict,
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, Dict[str, Tensor]) -> Tuple[Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Dict[str, Tensor]) -> Tuple[Tensor, Tensor]
     MULTIPLICATION_FACTOR_REWARD = 1.0 + (2.0) * curriculum_progress_fraction
     dist = torch.norm(pos_error, dim=1)
     prev_dist_to_goal = torch.norm(prev_pos_error, dim=1)
@@ -511,7 +617,8 @@ def compute_reward(
     )
     absolute_action_penalty = x_absolute_penalty + z_absolute_penalty + yawrate_absolute_penalty
     total_action_penalty = action_diff_penalty + absolute_action_penalty
-
+    spinnage = torch.norm(angular_velocity, dim=1)
+    ang_vel_reward = (1.0 / (1.0 + spinnage * spinnage)) * 3
     # combined reward
     reward = (
         MULTIPLICATION_FACTOR_REWARD
@@ -520,6 +627,7 @@ def compute_reward(
             + very_close_to_goal_reward
             + getting_closer_reward
             + distance_from_goal_reward
+            + ang_vel_reward
         )
         + total_action_penalty
     )

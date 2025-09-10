@@ -157,6 +157,25 @@ env_configurations.register(
     },
 )
 
+env_configurations.register(
+    "simple_target_task",
+    {
+        "env_creator": lambda **kwargs: task_registry.make_task(
+            "simple_target_task", **kwargs
+        ),
+        "vecenv_type": "AERIAL-RLGPU",
+    },
+)
+
+env_configurations.register(
+    "hard_target_task",
+    {
+        "env_creator": lambda **kwargs: task_registry.make_task(
+            "hard_target_task", **kwargs
+        ),
+        "vecenv_type": "AERIAL-RLGPU",
+    },
+)
 vecenv.register(
     "AERIAL-RLGPU",
     lambda config_name, num_actors, **kwargs: AERIALRLGPUEnv(config_name, num_actors, **kwargs),

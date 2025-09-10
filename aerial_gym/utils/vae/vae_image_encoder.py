@@ -31,13 +31,20 @@ class VAEImageEncoder:
         self.vae_model.eval()
 
     def encode(self, image_tensors):
-        """
-        Class to encode the set of images to a latent space. We can return both the means and sampled latent space variables.
-        """
         with torch.no_grad():
-            # need to squeeze 0th dimension and unsqueeze 1st dimension to make it work with the VAE
-            image_tensors = image_tensors.squeeze(0).unsqueeze(1)
+            # print(f"VAE input shape: {image_tensors.shape}")
+            
+            # 确保输入是 (batch, channels, height, width) 格式
+            if len(image_tensors.shape) == 3:  # (batch, H, W)
+                image_tensors = image_tensors.unsqueeze(1)  # 添加通道维 -> (batch, 1, H, W)
+            elif len(image_tensors.shape) == 4:  # 已经是正确格式
+                pass
+            else:
+                raise ValueError(f"Unexpected input shape: {image_tensors.shape}")
+                
             x_res, y_res = image_tensors.shape[-2], image_tensors.shape[-1]
+            # print(f"Image resolution: {x_res} x {y_res}")
+            
             if self.config.image_res != (x_res, y_res):
                 interpolated_image = torch.nn.functional.interpolate(
                     image_tensors,
@@ -46,7 +53,9 @@ class VAEImageEncoder:
                 )
             else:
                 interpolated_image = image_tensors
+                
             z_sampled, means, *_ = self.vae_model.encode(interpolated_image)
+        
         if self.config.return_sampled_latent:
             returned_val = z_sampled
         else:

@@ -246,6 +246,18 @@ class x500Cfg(BaseQuadCfg):
         asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/robots/x500"
         file = "x500.urdf"
         name = "x500"
+        collision_mask = 201
+    
+    class sensor_config:
+        enable_camera = True
+        camera_config = BaseDepthCameraConfig  # BaseNormalFaceIDCameraConfig
+
+        enable_lidar = False
+        lidar_config = BaseLidarConfig  # OSDome_64_Config
+
+        enable_imu = False
+        imu_config = BaseImuConfig
+
 
     class control_allocator_config(BaseQuadCfg.control_allocator_config):
         allocation_matrix = [

@@ -4,23 +4,23 @@ import torch
 import numpy as np
 
 from aerial_gym.utils.math import *
+from aerial_gym.utils.dynamic_obs_controller import DynamicObsController
 
 from aerial_gym.utils.logging import CustomLogger
 
 import gymnasium as gym
 from gym.spaces import Dict, Box
 
-logger = CustomLogger("position_setpoint_task")
+logger = CustomLogger("simple_target_task")
 
 
 def dict_to_class(dict):
     return type("ClassFromDict", (object,), dict)
 
 
-class PositionSetpointTask(BaseTask):
-    def __init__(
-        self, task_config, seed=None, num_envs=None, headless=None, device=None, use_warp=None
-    ):
+class SimpleTargetTask(BaseTask):
+    def __init__(self, task_config, seed=None, num_envs=None, headless=None, device=None, use_warp=None):
+
         # overwrite the params if user has provided them
         if seed is not None:
             task_config.seed = seed
@@ -32,15 +32,15 @@ class PositionSetpointTask(BaseTask):
             task_config.device = device
         if use_warp is not None:
             task_config.use_warp = use_warp
-
         super().__init__(task_config)
         self.device = self.task_config.device
-        # set the each of the elements of reward parameter to a torch tensor
+        
         for key in self.task_config.reward_parameters.keys():
             self.task_config.reward_parameters[key] = torch.tensor(
                 self.task_config.reward_parameters[key], device=self.device
             )
-        logger.info("Building environment for position setpoint task.")
+
+        logger.info("Building environment for simple target task.")
         logger.info(
             "\nSim Name: {},\nEnv Name: {},\nRobot Name: {}, \nController Name: {}".format(
                 self.task_config.sim_name,
@@ -62,8 +62,8 @@ class PositionSetpointTask(BaseTask):
             env_name=self.task_config.env_name,
             robot_name=self.task_config.robot_name,
             controller_name=self.task_config.controller_name,
-            args=self.task_config.args,
             device=self.device,
+            args=self.task_config.args,
             num_envs=self.task_config.num_envs,
             use_warp=self.task_config.use_warp,
             headless=self.task_config.headless,
@@ -74,41 +74,64 @@ class PositionSetpointTask(BaseTask):
             device=self.device,
             requires_grad=False,
         )
-        self.prev_actions = torch.zeros_like(self.actions)
-        self.counter = 0
+        self.lower_bound = None
+        self.upper_bound = None
+        self.dt = self.sim_env.sim_config.sim.dt
+
+        self.update_bounds()
 
         self.target_position = torch.zeros(
-            (self.sim_env.num_envs, 3), device=self.device, requires_grad=False
+            (self.sim_env.num_envs, 3), device=self.device, dtype=torch.float32
         )
-        self.target_position[:, 2] = 1.0
-        self.debug_counter = 0
+        self.target_velocity = torch.zeros(
+            (self.sim_env.num_envs, 3), device=self.device, dtype=torch.float32
+        )
+        self.obs_indice = self.find_asset_indices_by_type('dynamic_uav')
+        self.update_obs_state()
 
-        # Get the dictionary once from the environment and use it to get the observations later.
-        # This is to avoid constant retuning of data back anf forth across functions as the tensors update and can be read in-place.
+        
+        # 获取环境边界，留出安全边距
+        safety_margin = 2.0  # 安全边距
+        controller_min_pos = self.lower_bound + safety_margin
+        controller_max_pos = self.upper_bound - safety_margin
+        # 动态障碍物的最大速度
+        max_obs_velocity = 2.0  # 可以根据需要调整
+        
+        self.dynamic_obs_controller = DynamicObsController(
+            min_position=controller_min_pos,
+            max_position=controller_max_pos,
+            max_velocity=max_obs_velocity,
+            num_envs=self.sim_env.num_envs,
+            device=self.device,
+            dt=self.dt,
+            waypoint_update_freq=1000,  # 每200步更新一次路径点
+            smoothing_factor=0.85,     # 速度平滑因子
+            noise_scale=0.2            # 随机噪声强度
+        )
+            # self.dynamic_obs_controller = None
+
+
         self.obs_dict = self.sim_env.get_obs()
         self.obs_dict["num_obstacles_in_env"] = 1
         self.terminations = self.obs_dict["crashes"]
         self.truncations = self.obs_dict["truncations"]
         self.rewards = torch.zeros(self.truncations.shape[0], device=self.device)
-
-        self.observation_space = Dict(
-            {"observations": Box(low=-1.0, high=1.0, shape=(13,), dtype=np.float32)}
-        )
+        
         self.action_space = Box(
-            low=-np.pi / 2.0,
-            high=np.pi / 2.0,
+            low=-1.0,
+            high=1.0,
             shape=(self.task_config.action_space_dim,),
             dtype=np.float32,
         )
+
         self.action_transformation_function = self.task_config.action_transformation_function
 
+        self.prev_actions = torch.zeros_like(self.actions)
+        self.counter = 0
         self.num_envs = self.sim_env.num_envs
 
-        self.counter = 0
-
-        # Currently only the "observations" are sent to the actor and critic.
-        # The "priviliged_obs" are not handled so far in sample-factory
-
+        self.obs_twist = torch.zeros((self.sim_env.num_envs, self.sim_env.IGE_env.num_assets_per_env - 1, 6), device="cuda:0")
+        self.infos = {}
         self.task_obs = {
             "observations": torch.zeros(
                 (self.sim_env.num_envs, self.task_config.observation_space_dim),
@@ -130,53 +153,79 @@ class PositionSetpointTask(BaseTask):
                 (self.sim_env.num_envs, 1), device=self.device, requires_grad=False
             ),
         }
+    
+    def update_bounds(self):
+        self.lower_bound = self.sim_env.IGE_env.env_lower_bound
+        self.upper_bound = self.sim_env.IGE_env.env_upper_bound
 
     def close(self):
         self.sim_env.delete_env()
 
+    def update_obs_state(self):
+        target_position_all = self.sim_env.get_obs_position()
+        target_velocity_all = self.sim_env.get_obs_linvel()
+        for i in range(self.sim_env.num_envs):
+            self.target_position[i] = target_position_all[i, self.obs_indice[i][0]]
+            self.target_velocity[i] = target_velocity_all[i, self.obs_indice[i][0]]
+
     def reset(self):
-        self.target_position[:, 0:3] = 0.0  # torch.rand_like(self.target_position) * 10.0
-        self.target_position[:, 2] = 1.0
-        self.infos = {}
         self.sim_env.reset()
+        self.update_obs_state()
+        self.update_bounds()
+        if self.dynamic_obs_controller is not None:
+            # 获取新的边界，留出安全边距
+            safety_margin = 2.0
+            controller_min_pos = self.lower_bound + safety_margin
+            controller_max_pos = self.upper_bound - safety_margin
+            
+            # 更新控制器边界
+            self.dynamic_obs_controller.update_bounds(controller_min_pos, controller_max_pos)
+            
+            # 使用从环境获取的真实位置重置控制器
+            self.dynamic_obs_controller.reset(initial_positions=self.target_position)
+
+        self.infos = {}
         return self.get_return_tuple()
 
     def reset_idx(self, env_ids):
-        self.target_position[:, 0:3] = (
-            0.0  # (torch.rand_like(self.target_position[env_ids]) * 10.0)
-        )
-        self.target_position[:, 2] = 1.0
-        self.infos = {}
         self.sim_env.reset_idx(env_ids)
-        return
+        self.update_obs_state()
+        self.update_bounds()
+        if self.dynamic_obs_controller is not None:
+            # 获取新的边界，留出安全边距
+            safety_margin = 2.0
+            controller_min_pos = self.lower_bound + safety_margin
+            controller_max_pos = self.upper_bound - safety_margin
+            
+            # 更新控制器边界
+            self.dynamic_obs_controller.update_bounds(controller_min_pos, controller_max_pos)
+            
+            # 使用从环境获取的真实位置重置指定环境的控制器
+            self.dynamic_obs_controller.reset(env_ids, initial_positions=self.target_position[env_ids])
+        
+        self.infos = {}
+        return 
 
     def render(self):
-        return None
+        return self.sim_env.render()
 
     def step(self, actions):
         self.counter += 1
         self.prev_actions[:] = self.actions
         transformed_action = self.action_transformation_function(actions)
         self.actions = transformed_action
+        self.compute_obs_next_action()
 
-        # this uses the action, gets observations
-        # calculates rewards, returns tuples
-        # In this case, the episodes that are terminated need to be
-        # first reset, and the first obseration of the new episode
-        # needs to be returned.
-        self.sim_env.step(actions=self.actions)
+        self.sim_env.step(actions=self.actions, env_actions=self.obs_twist)
+        self.update_obs_state()
 
-        # This step must be done since the reset is done after the reward is calculated.
-        # This enables the robot to send back an updated state, and an updated observation to the RL agent after the reset.
-        # This is important for the RL agent to get the correct state after the reset.
         self.rewards[:], self.terminations[:] = self.compute_rewards_and_crashes(self.obs_dict)
-
         if self.task_config.return_state_before_reset == True:
             return_tuple = self.get_return_tuple()
-
         self.truncations[:] = torch.where(
             self.sim_env.sim_steps > self.task_config.episode_len_steps, 1, 0
         )
+
         self.sim_env.post_reward_calculation_step()
 
         self.infos = {}  # self.obs_dict["infos"]
@@ -185,7 +234,7 @@ class PositionSetpointTask(BaseTask):
             return_tuple = self.get_return_tuple()
 
         return return_tuple
-
+    
     def get_return_tuple(self):
         self.process_obs_for_task()
         return (
@@ -195,7 +244,7 @@ class PositionSetpointTask(BaseTask):
             self.truncations,
             self.infos,
         )
-
+    
     def process_obs_for_task(self):
         self.task_obs["observations"][:, 0:3] = (
             self.target_position - self.obs_dict["robot_position"]
@@ -205,37 +254,62 @@ class PositionSetpointTask(BaseTask):
         # self.task_obs["observations"][:, 10:13] = self.obs_dict["robot_body_angvel"]
         self.task_obs["observations"][:, 7:10] = self.obs_dict["robot_linvel"]
         self.task_obs["observations"][:, 10:13] = self.obs_dict["robot_angvel"]
+        self.task_obs["observations"][:, 13:17] = self.target_velocity
         self.task_obs["rewards"] = self.rewards
         self.task_obs["terminations"] = self.terminations
         self.task_obs["truncations"] = self.truncations
 
+    def compute_obs_next_action(self):
+        """计算动态障碍物的下一步动作"""
+        self.obs_twist = torch.zeros((self.sim_env.num_envs, self.sim_env.IGE_env.num_assets_per_env - 1, 6), device="cuda:0")
+        
+        if self.dynamic_obs_controller is not None:
+            # 获取当前动态障碍物的位置
+            current_obs_positions = self.target_position.clone()  # 使用已更新的目标位置
+            
+            # 获取控制器输出的twist
+            controller_twist = self.dynamic_obs_controller.get_twist(current_obs_positions)
+            for env_idx in range(self.sim_env.num_envs):
+                obs_asset_idx = self.obs_indice[env_idx][0]
+
+                self.obs_twist[env_idx, obs_asset_idx] = controller_twist[env_idx]
+                    
+
+    def find_asset_indices_by_type(self, asset_type):
+        """根据asset类型查找所有环境中的索引，返回二维列表[env_idx][asset_idx] = asset_id"""
+
+        num_envs = len(self.sim_env.global_asset_dicts)
+        all_indices = [[] for _ in range(num_envs)]
+        
+        for env_idx, asset_dicts in enumerate(self.sim_env.global_asset_dicts):
+            for asset_idx, asset_dict in enumerate(asset_dicts):
+                if asset_dict['asset_type'] == asset_type:
+                    all_indices[env_idx].append(asset_idx)  
+        return all_indices
+    
     def compute_rewards_and_crashes(self, obs_dict):
-        robot_position = obs_dict["robot_position"]
-        target_position = self.target_position
+        robot_position = obs_dict["robot_position"].to(dtype=torch.float32)
+        target_position = self.target_position  # 使用已正确索引的目标位置
         robot_linvel = obs_dict["robot_linvel"]
         robot_vehicle_orientation = obs_dict["robot_vehicle_orientation"]
         robot_orientation = obs_dict["robot_orientation"]
-        target_orientation = torch.zeros_like(robot_orientation, device=self.device)
-        target_orientation[:, 3] = 1.0
-        angular_velocity = obs_dict["robot_body_angvel"]
-        root_quats = obs_dict["robot_orientation"]
+        angular_velocity = obs_dict["robot_angvel"]
 
         pos_error_vehicle_frame = quat_apply_inverse(
             robot_vehicle_orientation, (target_position - robot_position)
         )
+
         return compute_reward(
             pos_error_vehicle_frame,
             robot_linvel,
-            root_quats,
+            robot_orientation,
             angular_velocity,
             obs_dict["crashes"],
-            1.0,  # obs_dict["curriculum_level_multiplier"],
+            1.0, 
             self.actions,
             self.prev_actions,
             self.task_config.reward_parameters,
-            self.debug_counter
         )
-
 
 @torch.jit.script
 def exp_func(x, gain, exp):
@@ -249,7 +323,7 @@ def exp_penalty_func(x, gain, exp):
     return gain * (torch.exp(-exp * x * x) - 1)
 
 
-# @torch.jit.script
+@torch.jit.script
 def compute_reward(
     pos_error,
     lin_vels,
@@ -260,14 +334,13 @@ def compute_reward(
     current_action,
     prev_actions,
     parameter_dict,
-    debug_counter
-):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Dict[str, Tensor], int) -> Tuple[Tensor, Tensor]
-    
+):  
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, Dict[str, Tensor]) -> Tuple[Tensor, Tensor]
+
     dist = torch.norm(pos_error, dim=1)
     pos_reward = exp_func(dist, 3.0, 8.0) + exp_func(dist, 2.0, 4.0)
     dist_reward = (20 - dist) / 40.0
-    
+
     ups = quat_axis(robot_quats, 2)
     
     up_reward = 2.0 * torch.sigmoid(5 * ups[..., 2]) - 1.0 
@@ -280,15 +353,6 @@ def compute_reward(
     )
     up_reward += severe_flip_penalty
 
-
-    debug_counter += 1
-    if debug_counter % 100 == 0:
-        print(f"up_z range: [{ups.min():.3f}, {ups.max():.3f}]")
-        print(f"up_reward range: [{up_reward.min():.3f}, {up_reward.max():.3f}]")
-        print(f"pos_reward mean: {pos_reward.mean():.3f}")
-        print(f"crash rate: {crashes.float().mean():.3f}")
-
-    
     spinnage = torch.norm(robot_angvels, dim=1)
     ang_vel_reward = (1.0 / (1.0 + spinnage * spinnage)) * 3
     

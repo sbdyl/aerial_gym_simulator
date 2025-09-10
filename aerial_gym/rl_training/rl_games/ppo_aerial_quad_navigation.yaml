@@ -60,12 +60,12 @@ params:
     clip_value: False
     num_actors: 1024
     horizon_length: 32
-    minibatch_size: 2048
+    minibatch_size: 4
     mini_epochs: 4
     critic_coef: 2
     normalize_input: True
     bounds_loss_coef: 0.0001
-    max_epochs: 500
+    max_epochs: 5000
     normalize_value: True
     use_diagnostics: True
     value_bootstrap: True

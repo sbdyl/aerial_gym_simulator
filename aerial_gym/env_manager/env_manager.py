@@ -396,9 +396,9 @@ class EnvManager(BaseManager):
                 self.global_tensor_dict["prev_env_actions"] = env_actions
                 self.prev_env_actions = self.global_tensor_dict["prev_env_actions"]
                 self.env_actions = self.global_tensor_dict["env_actions"]
-            logger.warning(
-                f"Env actions shape: {env_actions.shape}, Previous env actions shape: {self.env_actions.shape}"
-            )
+            # logger.warning(
+            #     f"Env actions shape: {env_actions.shape}, Previous env actions shape: {self.env_actions.shape}"
+            # )
             self.prev_env_actions[:] = self.env_actions
             self.env_actions[:] = env_actions
         num_physics_step_per_env_step = max(
@@ -421,3 +421,15 @@ class EnvManager(BaseManager):
     def get_obs(self):
         # Just return the dict of all tensors. Whatever the task needs can be used to compute the rewards.
         return self.global_tensor_dict
+    
+    def get_obs_position(self):
+        return self.obstacle_manager.obstacle_position
+    
+    def get_obs_linvel(self):
+        return self.obstacle_manager.obstacle_linvel
+    
+    def get_obs_orientation(self):
+        return self.obstacle_manager.obstacle_orientation
+        
+    def get_obs_angvel(self):
+        return self.obstacle_manager.obstacle_angvel

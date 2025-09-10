@@ -256,6 +256,7 @@ class object_asset_params(asset_state_params):
 
 class dynamic_uav_asset_params(asset_state_params):
     num_assets = 1
+    collision_mask = 201
     asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/robots/quad"
     file = "model.urdf"
     min_state_ratio = [

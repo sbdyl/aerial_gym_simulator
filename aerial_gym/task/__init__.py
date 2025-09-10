@@ -13,6 +13,8 @@ from aerial_gym.task.position_setpoint_task_sim2real_end_to_end.position_setpoin
 from aerial_gym.task.position_setpoint_task_acceleration_sim2real.position_setpoint_task_acceleration_sim2real import (
     PositionSetpointTaskAccelerationSim2Real,
 )
+from aerial_gym.task.simple_target_task.simple_target_task import SimpleTargetTask
+from aerial_gym.task.hard_target_task.hard_target_task import HardTargetTask
 
 from aerial_gym.task.navigation_task.navigation_task import NavigationTask
 
@@ -34,6 +36,12 @@ from aerial_gym.config.task_config.position_setpoint_task_sim2real_end_to_end_co
 
 from aerial_gym.config.task_config.position_setpoint_task_acceleration_sim2real_config import (
     task_config as position_setpoint_task_acceleration_sim2real_config,
+)
+from aerial_gym.config.task_config.simple_target_task_config import (
+    task_config as simple_target_task_config,
+)
+from aerial_gym.config.task_config.hard_target_task_config import (
+    task_config as hard_target_task_config,
 )
 
 from aerial_gym.config.task_config.navigation_task_config import (
@@ -66,6 +74,9 @@ task_registry.register_task(
     PositionSetpointTaskAccelerationSim2Real,
     position_setpoint_task_acceleration_sim2real_config,
 )
+task_registry.register_task("simple_target_task", SimpleTargetTask, simple_target_task_config)
+
+task_registry.register_task("hard_target_task", HardTargetTask, hard_target_task_config)
 
 task_registry.register_task("navigation_task", NavigationTask, navigation_task_config)
 

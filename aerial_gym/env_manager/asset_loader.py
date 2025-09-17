@@ -171,7 +171,7 @@ class AssetLoader:
                     )
                     if asset_info_dict["keep_in_env"]:
                         ordered_asset_list.appendleft(asset_info_dict)
-                        logger.debug(f"Asset {asset_type} kept in env")
+                        logger.info(f"Asset {asset_type} kept in env")
                         keep_in_env_num += 1
                     else:
                         ordered_asset_list.append(asset_info_dict)

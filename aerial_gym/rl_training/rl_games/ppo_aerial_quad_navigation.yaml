@@ -28,12 +28,12 @@ params:
       initializer:
         name: default
         scale: 2
-    # rnn:
-    #     name: gru
-    #     units: 32
-    #     layers: 1
-    #     before_mlp: False
-    #     layer_norm: True
+    rnn:
+        name: gru
+        units: 32
+        layers: 1
+        before_mlp: False
+        layer_norm: True
   config:
     env_name: quad
     env_config:
@@ -48,7 +48,7 @@ params:
     gamma: 0.98
     tau: 0.95
     ppo: True
-    learning_rate: 1e-4
+    learning_rate: 1e-6
     lr_schedule: adaptive
     kl_threshold: 0.016
     save_best_after: 10
@@ -60,7 +60,7 @@ params:
     clip_value: False
     num_actors: 1024
     horizon_length: 32
-    minibatch_size: 4
+    minibatch_size: 256
     mini_epochs: 4
     critic_coef: 2
     normalize_input: True

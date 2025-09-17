@@ -112,7 +112,6 @@ class SimpleTargetTask(BaseTask):
 
 
         self.obs_dict = self.sim_env.get_obs()
-        self.obs_dict["num_obstacles_in_env"] = 1
         self.terminations = self.obs_dict["crashes"]
         self.truncations = self.obs_dict["truncations"]
         self.rewards = torch.zeros(self.truncations.shape[0], device=self.device)

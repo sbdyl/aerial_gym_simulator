@@ -1,28 +1,13 @@
-from aerial_gym.config.asset_config.env_object_config import (
-    panel_asset_params,
-    thin_asset_params,
-    tree_asset_params,
-    object_asset_params,
-    tile_asset_params,
-)
-from aerial_gym.config.asset_config.env_object_config import (
-    left_wall,
-    right_wall,
-    back_wall,
-    front_wall,
-    bottom_wall,
-    top_wall,
-)
+from aerial_gym.config.asset_config.dynamic_env_object_config import *
 
-from aerial_gym.config.asset_config.dynamic_env_object_config import dynamic_uav_asset_params
+# from aerial_gym.config.asset_config.dynamic_env_object_config import dynamic_uav_asset_params
 
 import numpy as np
 
-
 class HardTargetEnvCfg:
     class env:
-        num_envs = 64  # overridden by the num_envs parameter in the task config if used
-        num_env_actions = 4  # this is the number of actions handled by the environment
+        num_envs = 1  # overridden by the num_envs parameter in the task config if used
+        num_env_actions = 6  # this is the number of actions handled by the environment
         # potentially some of these can be input from the RL agent for the robot and
         # some of them can be used to control various entities in the environment
         # e.g. motion of obstacles, etc.
@@ -36,11 +21,11 @@ class HardTargetEnvCfg:
             True  # reset environment when contact force on quadrotor is above a threshold
         )
         collision_force_threshold = 0.05  # collision force threshold [N]
-        create_ground_plane = True  # create a ground plane
+        create_ground_plane = False  # create a ground plane
         sample_timestep_for_latency = True  # sample the timestep for the latency noise
         perturb_observations = True
         keep_same_env_for_num_episodes = 1
-        write_to_sim_at_every_timestep = False  # write to sim at every timestep
+        write_to_sim_at_every_timestep = True  # write to sim at every timestep
 
         use_warp = True
         lower_bound_min = [-2.0, -4.0, -3.0]  # lower bound for the environment space
@@ -51,16 +36,15 @@ class HardTargetEnvCfg:
     class env_config:
         include_asset_type = {
             "panels": True,
-            "tiles": False,
             "thin": False,
             "trees": False,
             "objects": True,
-            "left_wall": False,
-            "right_wall": False,
-            "back_wall": False,
-            "front_wall": False,
-            "top_wall": False,
-            "bottom_wall": False,
+            "left_wall": True,
+            "right_wall": True,
+            "back_wall": True,
+            "front_wall": True,
+            "top_wall": True,
+            "bottom_wall": True,
             "dynamic_uav": True,
         }
 
@@ -76,6 +60,6 @@ class HardTargetEnvCfg:
             "front_wall": front_wall,
             "bottom_wall": bottom_wall,
             "top_wall": top_wall,
-            "tiles": tile_asset_params,
             "dynamic_uav": dynamic_uav_asset_params,
         }
+

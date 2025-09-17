@@ -246,7 +246,7 @@ class x500Cfg(BaseQuadCfg):
         asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/robots/x500"
         file = "x500.urdf"
         name = "x500"
-        collision_mask = 201
+        collision_mask = 0
     
     class sensor_config:
         enable_camera = True

@@ -26,9 +26,12 @@ class task_config:
     target_min_ratio = [0.90, 0.1, 0.1]  # target ratio w.r.t environment bounds in x,y,z
     target_max_ratio = [0.94, 0.90, 0.90]  # target ratio w.r.t environment bounds in x,y,z
 
+    max_speed = 2.0
     reward_parameters = {
         "pos_reward_magnitude": 5.0,
         "pos_reward_exponent": 1.0 / 3.5,
+        "max_velocity_reward_magnitude": 0.5,
+        "max_velocity_reward_exponent": 1.0 / 2.5,
         "very_close_to_goal_reward_magnitude": 5.0,
         "very_close_to_goal_reward_exponent": 2.0,
         "getting_closer_reward_multiplier": 10.0,
@@ -44,7 +47,10 @@ class task_config:
         "z_absolute_action_penalty_exponent": 1.0,
         "yawrate_absolute_action_penalty_magnitude": 1.5,
         "yawrate_absolute_action_penalty_exponent": 2.0,
-        "collision_penalty": -100.0,
+        "collision_penalty": -500.0,
+        "success_reward": 500.0,
+        "time_penalty_magnitude": 1.5,
+        "early_time_reward_magnitude": 300,
     }
 
     class vae_config:
@@ -88,5 +94,11 @@ class task_config:
         action[:, 0] = torch.clamp(action[:, 0], -1.0, 1.0)
         action[:, 1] = torch.clamp(action[:, 1], -1.0, 1.0)
         action[:, 2] = torch.clamp(action[:, 2], -1.0, 1.0)
+
+        # [-1,1] -> [max_speed] for each environment
+        magnitude = torch.norm(action[:, 0:3], dim=1, keepdim=True)
+        action[:, 0:3] = task_config.max_speed * action[:, 0:3] / magnitude
+        
         action[:, 3] = torch.clamp(action[:, 3], -torch.pi / 4.0, torch.pi / 4.0)
+
         return action

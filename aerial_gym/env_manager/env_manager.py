@@ -250,6 +250,7 @@ class EnvManager(BaseManager):
             )
 
         self.global_tensor_dict["num_obstacles_in_env"] = self.num_obs_in_env
+        
 
     def prepare_sim(self):
         """

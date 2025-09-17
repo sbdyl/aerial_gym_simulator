@@ -63,6 +63,12 @@ class HardTargetTask(BaseTask):
             use_warp=self.task_config.use_warp,
             headless=self.task_config.headless,
         )
+        self.actions = torch.zeros(
+            (self.sim_env.num_envs, self.task_config.action_space_dim),
+            device=self.device,
+            requires_grad=False,
+        )
+        self.target_max_velocity = self.task_config.max_speed
 
         self.lower_bound = None
         self.upper_bound = None
@@ -83,13 +89,6 @@ class HardTargetTask(BaseTask):
         controller_min_pos = self.lower_bound + safety_margin
         controller_max_pos = self.upper_bound - safety_margin
         max_obs_velocity = 2.0  
-
-        self.target_min_ratio = torch.tensor(
-            self.task_config.target_min_ratio, device=self.device, requires_grad=False
-        ).expand(self.sim_env.num_envs, -1)
-        self.target_max_ratio = torch.tensor(
-            self.task_config.target_max_ratio, device=self.device, requires_grad=False
-        ).expand(self.sim_env.num_envs, -1)
 
         self.success_aggregate = 0
         self.crashes_aggregate = 0
@@ -167,20 +166,20 @@ class HardTargetTask(BaseTask):
                 device=self.device,
                 requires_grad=False,
             ),
-            # "priviliged_obs": torch.zeros(
-            #     (
-            #         self.sim_env.num_envs,
-            #         self.task_config.privileged_observation_space_dim,
-            #     ),
-            #     device=self.device,
-            #     requires_grad=False,
-            # ),
-            # "collisions": torch.zeros(
-            #     (self.sim_env.num_envs, 1), device=self.device, requires_grad=False
-            # ),
-            # "rewards": torch.zeros(
-            #     (self.sim_env.num_envs, 1), device=self.device, requires_grad=False
-            # ),
+            "priviliged_obs": torch.zeros(
+                (
+                    self.sim_env.num_envs,
+                    self.task_config.privileged_observation_space_dim,
+                ),
+                device=self.device,
+                requires_grad=False,
+            ),
+            "collisions": torch.zeros(
+                (self.sim_env.num_envs, 1), device=self.device, requires_grad=False
+            ),
+            "rewards": torch.zeros(
+                (self.sim_env.num_envs, 1), device=self.device, requires_grad=False
+            ),
         }
 
         self.num_task_steps = 0
@@ -212,7 +211,7 @@ class HardTargetTask(BaseTask):
         self.sim_env.delete_env()
 
     def reset(self):
-        self.reset_idx(torch.arange(self.sim_env.num_envs))
+        self.sim_env.reset()
         self.update_obs_state()
         self.update_bounds()
         if self.dynamic_obs_controller is not None:
@@ -231,12 +230,7 @@ class HardTargetTask(BaseTask):
         return self.get_return_tuple()
 
     def reset_idx(self, env_ids):
-        target_ratio = torch_rand_float_tensor(self.target_min_ratio, self.target_max_ratio)
-        self.target_position[env_ids] = torch_interpolate_ratio(
-            min=self.obs_dict["env_bounds_min"][env_ids],
-            max=self.obs_dict["env_bounds_max"][env_ids],
-            ratio=target_ratio[env_ids],
-        )
+        self.sim_env.reset_idx(env_ids)
         self.update_obs_state()
         self.update_bounds()
         if self.dynamic_obs_controller is not None:
@@ -276,17 +270,6 @@ class HardTargetTask(BaseTask):
             logger.critical(f"Envs crashing too soon: {env_list_for_toc}")
             logger.critical(f"Time at crash: {time_at_crash[env_list_for_toc]}")
 
-        if torch.sum(torch.logical_and(successes, crashes)) > 0:
-            logger.critical("Success and crash are occuring at the same time")
-            logger.critical(
-                f"Number of crashes: {torch.count_nonzero(crashes)}, Crashed envs: {crash_envs}"
-            )
-            logger.critical(
-                f"Number of successes: {torch.count_nonzero(successes)}, Success envs: {success_envs}"
-            )
-            logger.critical(
-                f"Number of common instances: {torch.count_nonzero(torch.logical_and(crashes, successes))}"
-            )
         if torch.sum(torch.logical_and(successes, timeouts)) > 0:
             logger.critical("Success and timeout are occuring at the same time")
             logger.critical(
@@ -402,7 +385,7 @@ class HardTargetTask(BaseTask):
         # needs to be returned.
 
         transformed_action = self.action_transformation_function(actions)
-        logger.debug(f"raw_action: {actions[0]}, transformed action: {transformed_action[0]}")
+        # logger.info(f"raw_action: {actions[0]}, transformed action: {transformed_action[0]}")
         self.compute_obs_next_action()
         
         self.sim_env.step(actions=transformed_action, env_actions=self.obs_twist)
@@ -411,8 +394,13 @@ class HardTargetTask(BaseTask):
         # This step must be done since the reset is done after the reward is calculated.
         # This enables the robot to send back an updated state, and an updated observation to the RL agent after the reset.
         # This is important for the RL agent to get the correct state after the reset.
-        self.rewards[:], self.terminations[:] = self.compute_rewards_and_crashes(self.obs_dict)
-
+        target_dist = torch.norm(self.target_position - self.obs_dict["robot_position"], dim=1)
+        successes = (target_dist < 1.0).float()
+        # logger.info(f"Target distance is {target_dist}")
+        # print(f"successes is {successes}")
+        self.rewards[:], self.terminations[:] = self.compute_rewards_and_crashes(
+            self.obs_dict, successes, self.sim_env.sim_steps, torch.tensor(self.task_config.episode_len_steps, device=self.device, dtype=torch.int64)
+        )
         # logger.info(f"Curricluum Level: {self.curriculum_level}")
 
         if self.task_config.return_state_before_reset == True:
@@ -425,20 +413,24 @@ class HardTargetTask(BaseTask):
         )
 
         # successes are are the sum of the environments which are to be truncated and have reached the target within a distance threshold
-        successes = self.truncations * (
-            torch.norm(self.target_position - self.obs_dict["robot_position"], dim=1) < 1.0
+        
+        
+        crashes = self.terminations.clone()
+        
+        self.terminations = torch.where(
+            torch.logical_or(successes > 0, crashes > 0), 
+            torch.ones_like(self.terminations), 
+            torch.zeros_like(self.terminations)
         )
-        successes = torch.where(self.terminations > 0, torch.zeros_like(successes), successes)
+
+        # print(f"self cur terminations is {self.terminations}")
         timeouts = torch.where(
             self.truncations > 0, torch.logical_not(successes), torch.zeros_like(successes)
-        )
-        timeouts = torch.where(
-            self.terminations > 0, torch.zeros_like(timeouts), timeouts
         )  # timeouts are not counted if there is a crash
 
         self.infos["successes"] = successes
         self.infos["timeouts"] = timeouts
-        self.infos["crashes"] = self.terminations
+        self.infos["crashes"] = crashes
 
         self.logging_sanity_check(self.infos)
         self.check_and_update_curriculum_level(
@@ -453,6 +445,8 @@ class HardTargetTask(BaseTask):
         # do stuff with the image observations here
         self.process_image_observation()
         self.post_image_reward_addition()
+
+        # print(f"self after terminations is {self.terminations}")
         if self.task_config.return_state_before_reset == False:
             return_tuple = self.get_return_tuple()
         return return_tuple
@@ -482,6 +476,7 @@ class HardTargetTask(BaseTask):
         )
         perturbed_vec_to_tgt = vec_to_tgt + 0.1 * 2 * (torch.rand_like(vec_to_tgt - 0.5))
         dist_to_tgt = torch.norm(vec_to_tgt, dim=-1)
+        # logger.info(f"Observation distance is {dist_to_tgt}")
         perturbed_unit_vec_to_tgt = perturbed_vec_to_tgt / dist_to_tgt.unsqueeze(1)
         self.task_obs["observations"][:, 0:3] = perturbed_unit_vec_to_tgt
         self.task_obs["observations"][:, 3] = dist_to_tgt
@@ -504,11 +499,12 @@ class HardTargetTask(BaseTask):
 
         # self.task_obs["image_obs"] = self.obs_dict["depth_range_pixels"]
 
-    def compute_rewards_and_crashes(self, obs_dict):
+    def compute_rewards_and_crashes(self, obs_dict, successes, current_steps, max_steps):
         robot_position = obs_dict["robot_position"]
         target_position = self.target_position
-        robot_linvel = obs_dict["robot_linvel"]
         robot_vehicle_orientation = obs_dict["robot_vehicle_orientation"]
+        robot_velocity = obs_dict["robot_linvel"]
+        velocity_error = abs(torch.norm(robot_velocity, dim=1) - self.target_max_velocity)
         robot_orientation = obs_dict["robot_orientation"]
         angular_velocity = obs_dict["robot_angvel"]
 
@@ -521,13 +517,16 @@ class HardTargetTask(BaseTask):
         return compute_reward(
             self.pos_error_vehicle_frame,
             self.pos_error_vehicle_frame_prev,
-            robot_linvel,
+            velocity_error,
             angular_velocity,
             obs_dict["crashes"],
             obs_dict["robot_actions"],
             obs_dict["robot_prev_actions"],
             self.curriculum_progress_fraction,
             self.task_config.reward_parameters,
+            successes,
+            current_steps,
+            max_steps,
         )
 
 
@@ -551,15 +550,18 @@ def exponential_penalty_function(
 def compute_reward(
     pos_error,
     prev_pos_error,
-    robot_linvel,
+    velocity_error,
     angular_velocity,
     crashes,
     action,
     prev_action,
     curriculum_progress_fraction,
     parameter_dict,
+    successes,
+    current_steps,
+    max_steps,
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Dict[str, Tensor]) -> Tuple[Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Dict[str, Tensor], Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
     MULTIPLICATION_FACTOR_REWARD = 1.0 + (2.0) * curriculum_progress_fraction
     dist = torch.norm(pos_error, dim=1)
     prev_dist_to_goal = torch.norm(prev_pos_error, dim=1)
@@ -583,42 +585,52 @@ def compute_reward(
 
     distance_from_goal_reward = (20.0 - dist) / 20.0
     action_diff = action - prev_action
-    x_diff_penalty = exponential_penalty_function(
-        parameter_dict["x_action_diff_penalty_magnitude"],
-        parameter_dict["x_action_diff_penalty_exponent"],
-        action_diff[:, 0],
-    )
-    z_diff_penalty = exponential_penalty_function(
-        parameter_dict["z_action_diff_penalty_magnitude"],
-        parameter_dict["z_action_diff_penalty_exponent"],
-        action_diff[:, 2],
-    )
+    # x_diff_penalty = exponential_penalty_function(
+    #     parameter_dict["x_action_diff_penalty_magnitude"],
+    #     parameter_dict["x_action_diff_penalty_exponent"],
+    #     action_diff[:, 0],
+    # )
+    # z_diff_penalty = exponential_penalty_function(
+    #     parameter_dict["z_action_diff_penalty_magnitude"],
+    #     parameter_dict["z_action_diff_penalty_exponent"],
+    #     action_diff[:, 2],
+    # )
     yawrate_diff_penalty = exponential_penalty_function(
         parameter_dict["yawrate_action_diff_penalty_magnitude"],
         parameter_dict["yawrate_action_diff_penalty_exponent"],
         action_diff[:, 3],
     )
-    action_diff_penalty = x_diff_penalty + z_diff_penalty + yawrate_diff_penalty
+    # action_diff_penalty = x_diff_penalty + z_diff_penalty + yawrate_diff_penalty
+    action_diff_penalty = yawrate_diff_penalty
     # absolute action penalty
-    x_absolute_penalty = curriculum_progress_fraction * exponential_penalty_function(
-        parameter_dict["x_absolute_action_penalty_magnitude"],
-        parameter_dict["x_absolute_action_penalty_exponent"],
-        action[:, 0],
-    )
-    z_absolute_penalty = curriculum_progress_fraction * exponential_penalty_function(
-        parameter_dict["z_absolute_action_penalty_magnitude"],
-        parameter_dict["z_absolute_action_penalty_exponent"],
-        action[:, 2],
-    )
+    # x_absolute_penalty = curriculum_progress_fraction * exponential_penalty_function(
+    #     parameter_dict["x_absolute_action_penalty_magnitude"],
+    #     parameter_dict["x_absolute_action_penalty_exponent"],
+    #     action[:, 0],
+    # )
+    # z_absolute_penalty = curriculum_progress_fraction * exponential_penalty_function(
+    #     parameter_dict["z_absolute_action_penalty_magnitude"],
+    #     parameter_dict["z_absolute_action_penalty_exponent"],
+    #     action[:, 2],
+    # )
     yawrate_absolute_penalty = curriculum_progress_fraction * exponential_penalty_function(
         parameter_dict["yawrate_absolute_action_penalty_magnitude"],
         parameter_dict["yawrate_absolute_action_penalty_exponent"],
         action[:, 3],
     )
-    absolute_action_penalty = x_absolute_penalty + z_absolute_penalty + yawrate_absolute_penalty
+    # absolute_action_penalty = x_absolute_penalty + z_absolute_penalty + yawrate_absolute_penalty
+    absolute_action_penalty = yawrate_absolute_penalty
     total_action_penalty = action_diff_penalty + absolute_action_penalty
     spinnage = torch.norm(angular_velocity, dim=1)
     ang_vel_reward = (1.0 / (1.0 + spinnage * spinnage)) * 3
+
+    # velocity reward
+    velocity_reward = exponential_reward_function(
+        parameter_dict["max_velocity_reward_magnitude"],
+        parameter_dict["max_velocity_reward_exponent"],
+        velocity_error,
+    )
+
     # combined reward
     reward = (
         MULTIPLICATION_FACTOR_REWARD
@@ -628,12 +640,27 @@ def compute_reward(
             + getting_closer_reward
             + distance_from_goal_reward
             + ang_vel_reward
+            + velocity_reward
         )
         + total_action_penalty
     )
 
+    success_reward = parameter_dict["success_reward"]
+    reward = torch.where(successes > 0, success_reward * torch.ones_like(reward) + reward, reward) 
+
+    half_episode = max_steps.float() * 0.5
+    time_penalty_mask = current_steps.float() > half_episode
+    time_progress = (current_steps.float() - half_episode) / (max_steps.float() - half_episode)
+    time_penalty = -parameter_dict["time_penalty_magnitude"] * time_progress  
+    reward = torch.where(time_penalty_mask, reward + time_penalty, reward)
+
+    # early time reward
+    early_time_reward_mask = current_steps.float() < half_episode
+    early_time_reward = parameter_dict["early_time_reward_magnitude"] * (1.0 + time_progress)
+    reward = torch.where((early_time_reward_mask) & (successes > 0), reward + early_time_reward, reward)
+
     reward[:] = torch.where(
-        crashes > 0,
+        torch.logical_and(crashes > 0, successes < 1), 
         parameter_dict["collision_penalty"] * torch.ones_like(reward),
         reward,
     )

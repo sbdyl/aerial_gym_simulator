@@ -15,7 +15,7 @@ TOP_WALL_SEMANTIC_ID = 14
 
 
 class asset_state_params:
-    num_assets = 1  # number of assets to include
+    num_assets = 6  # number of assets to include
 
     asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/models/environment_assets"
     file = None  # if file=None, random assets will be selected. If not None, this file will be used
@@ -41,7 +41,7 @@ class asset_state_params:
     fix_base_link = False
     specific_filepath = None  # if not None, use this folder instead randomizing
     color = None
-    keep_in_env = False
+    keep_in_env = True
 
     body_semantic_label = 0
     link_semantic_label = 0
@@ -256,16 +256,16 @@ class object_asset_params(asset_state_params):
 
 class dynamic_uav_asset_params(asset_state_params):
     num_assets = 1
-    collision_mask = 201
+    collision_mask = 1
     asset_folder = f"{AERIAL_GYM_DIRECTORY}/resources/robots/quad"
     file = "model.urdf"
     min_state_ratio = [
         0.30,
         0.05,
         0.05,
-        -np.pi,
-        -np.pi,
-        -np.pi,
+        0.0,
+        0.0,
+        0.0,
         1.0,
         0.0,
         0.0,
@@ -279,9 +279,9 @@ class dynamic_uav_asset_params(asset_state_params):
         0.85,
         0.9,
         0.9,
-        np.pi,
-        np.pi,
-        np.pi,
+        0.0,
+        0.0,
+        0.0,
         1.0,
         0.0,
         0.0,
@@ -291,7 +291,7 @@ class dynamic_uav_asset_params(asset_state_params):
         0.0,
     ]
 
-    keep_in_env = False
+    keep_in_env = True
     per_link_semantic = False
     semantic_id = -1  # will be assigned incrementally per instance
 

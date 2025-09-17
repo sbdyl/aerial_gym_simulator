@@ -10,7 +10,7 @@ class task_config:
     controller_name = "lee_velocity_control"
     args = {}
     num_envs = 4096
-    use_warp = False
+    use_warp = True
     headless = False
     device = "cuda:0"
     # self.pos_error, self.q, self.vel, self.ang_vel, obs.vel

@@ -34,14 +34,14 @@ class QuadFlightDynamicEnvCfg:
 
     class env_config:
         include_asset_type = {
-            "panels": False,
-            "thin": True,
+            "panels": True,
+            "thin": False,
             "trees": False,
             "objects": False,
-            "left_wall": True,
-            "right_wall": True,
-            "back_wall": True,
-            "front_wall": True,
+            "left_wall": False,
+            "right_wall": False,
+            "back_wall": False,
+            "front_wall": False,
             "top_wall": False,
             "bottom_wall": False,
             "dynamic_uav": True,

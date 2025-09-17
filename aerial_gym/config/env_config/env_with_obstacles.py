@@ -38,7 +38,7 @@ class EnvWithObstaclesCfg:
         sample_timestep_for_latency = True  # sample the timestep for the latency noise
         perturb_observations = True
         keep_same_env_for_num_episodes = 1
-        write_to_sim_at_every_timestep = False  # write to sim at every timestep
+        write_to_sim_at_every_timestep = True  # write to sim at every timestep
 
         use_warp = True
         lower_bound_min = [-2.0, -4.0, -3.0]  # lower bound for the environment space

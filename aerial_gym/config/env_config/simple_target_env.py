@@ -34,7 +34,7 @@ class SimpleTargetEnvCfg:
 
     class env_config:
         include_asset_type = {
-            "panels": False,
+            "panels": True,
             "thin": False,
             "trees": False,
             "objects": False,

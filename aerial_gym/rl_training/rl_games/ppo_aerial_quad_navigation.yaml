@@ -45,10 +45,10 @@ params:
       scale_value: 0.1
 
     normalize_advantage: True
-    gamma: 0.98
+    gamma: 0.97
     tau: 0.95
     ppo: True
-    learning_rate: 1e-6
+    learning_rate: 1e-7
     lr_schedule: adaptive
     kl_threshold: 0.016
     save_best_after: 10
@@ -57,7 +57,7 @@ params:
     entropy_coef: 0
     truncate_grads: True
     e_clip: 0.2
-    clip_value: False
+    clip_value: True
     num_actors: 1024
     horizon_length: 32
     minibatch_size: 256

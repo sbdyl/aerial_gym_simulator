@@ -13,7 +13,7 @@ from aerial_gym.utils.vae.vae_image_encoder import VAEImageEncoder
 import gymnasium as gym
 from gym.spaces import Dict, Box
 
-logger = CustomLogger("navigation_task")
+logger = CustomLogger("hard_target_task")
 
 
 def dict_to_class(dict):
@@ -69,12 +69,26 @@ class HardTargetTask(BaseTask):
             requires_grad=False,
         )
         self.target_max_velocity = self.task_config.max_speed
+        self.target_speed = self.task_config.target_speed
 
         self.lower_bound = None
         self.upper_bound = None
         self.dt = self.sim_env.sim_config.sim.dt
 
         self.update_bounds()
+        
+        self.reward_components = {}
+        self.episode_rewards = []
+        self.episode_count = 0
+        self.epoch_step_count = 0
+        self.steps_per_epoch = self.task_config.episode_len_steps  # 可配置每个epoch的步数
+        self.component_names = [
+            'pos_reward', 'very_close_to_goal_reward', 'getting_closer_reward',
+            'velocity_reward',
+            'success_reward',
+            'time_penalty', 'early_time_reward', 'collision_penalty'
+        ]
+        self.reset_reward_stats()
 
         self.target_position = torch.zeros(
             (self.sim_env.num_envs, 3), device=self.device, requires_grad=False
@@ -183,6 +197,49 @@ class HardTargetTask(BaseTask):
         }
 
         self.num_task_steps = 0
+
+    def reset_reward_stats(self):
+        """重置奖励统计"""
+        for name in self.component_names:
+            self.reward_components[name] = []
+        self.episode_rewards = []
+        
+
+    def log_reward_components(self, components_dict, total_reward):
+        """记录奖励组件"""
+        for name in self.component_names:
+            if name in components_dict:
+                self.reward_components[name].extend(components_dict[name].cpu().numpy().tolist())
+        self.episode_rewards.extend(total_reward.cpu().numpy().tolist())
+
+    def print_reward_statistics(self):
+        """打印奖励统计信息"""
+        if not self.episode_rewards:
+            return
+            
+        import numpy as np
+        
+        total_reward_mean = np.mean(self.episode_rewards)
+        print(f"\n{'='*60}")
+        print(f"Epoch {self.epoch_step_count // self.steps_per_epoch} Reward Statistics")
+        print(f"{'='*60}")
+        print(f"Average Total Reward: {total_reward_mean:.4f}")
+        print(f"Episodes: {len(self.episode_rewards)}")
+        print(f"\nReward Component Analysis:")
+        print(f"{'Component':<25} {'Mean':<10} {'Percentage':<12} {'Count':<8}")
+        print(f"{'-'*60}")
+        
+        for name in self.component_names:
+            if self.reward_components[name]:
+                component_mean = np.mean(self.reward_components[name])
+                percentage = (component_mean / total_reward_mean * 100) if total_reward_mean != 0 else 0
+                count = len(self.reward_components[name])
+                print(f"{name:<25} {component_mean:<10.4f} {percentage:<12.2f}% {count:<8}")
+        
+        print(f"{'='*60}\n")
+        
+        # 重置统计
+        self.reset_reward_stats()
 
     def update_bounds(self):
         self.lower_bound = self.sim_env.IGE_env.env_lower_bound
@@ -398,7 +455,7 @@ class HardTargetTask(BaseTask):
         successes = (target_dist < 1.0).float()
         # logger.info(f"Target distance is {target_dist}")
         # print(f"successes is {successes}")
-        self.rewards[:], self.terminations[:] = self.compute_rewards_and_crashes(
+        self.rewards[:], self.terminations[:], reward_components = self.compute_rewards_and_crashes(
             self.obs_dict, successes, self.sim_env.sim_steps, torch.tensor(self.task_config.episode_len_steps, device=self.device, dtype=torch.int64)
         )
         # logger.info(f"Curricluum Level: {self.curriculum_level}")
@@ -411,6 +468,13 @@ class HardTargetTask(BaseTask):
             torch.ones_like(self.truncations),
             torch.zeros_like(self.truncations),
         )
+
+        self.log_reward_components(reward_components, self.rewards)
+        
+        # 检查是否需要输出统计信息
+        self.epoch_step_count += 1
+        if self.epoch_step_count % self.steps_per_epoch == 0:
+            self.print_reward_statistics()
 
         # successes are are the sum of the environments which are to be truncated and have reached the target within a distance threshold
         
@@ -504,7 +568,7 @@ class HardTargetTask(BaseTask):
         target_position = self.target_position
         robot_vehicle_orientation = obs_dict["robot_vehicle_orientation"]
         robot_velocity = obs_dict["robot_linvel"]
-        velocity_error = abs(torch.norm(robot_velocity, dim=1) - self.target_max_velocity)
+        velocity_error = torch.where(torch.norm(robot_velocity, dim=1) - self.target_speed < 0,abs(torch.norm(robot_velocity, dim=1) - self.target_speed), torch.zeros_like(torch.norm(robot_velocity, dim=1)))
         robot_orientation = obs_dict["robot_orientation"]
         angular_velocity = obs_dict["robot_angvel"]
 
@@ -561,8 +625,8 @@ def compute_reward(
     current_steps,
     max_steps,
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Dict[str, Tensor], Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
-    MULTIPLICATION_FACTOR_REWARD = 1.0 + (2.0) * curriculum_progress_fraction
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Dict[str, Tensor], Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor, Dict[str, Tensor]]
+    MULTIPLICATION_FACTOR_REWARD = 1.0 + (2.0 * 0.2857142857142857) * curriculum_progress_fraction
     dist = torch.norm(pos_error, dim=1)
     prev_dist_to_goal = torch.norm(prev_pos_error, dim=1)
     pos_reward = exponential_reward_function(
@@ -632,36 +696,55 @@ def compute_reward(
     )
 
     # combined reward
-    reward = (
+    base_reward = (
         MULTIPLICATION_FACTOR_REWARD
         * (
             pos_reward
             + very_close_to_goal_reward
             + getting_closer_reward
-            + distance_from_goal_reward
-            + ang_vel_reward
+            # + distance_from_goal_reward
+            # + ang_vel_reward
             + velocity_reward
         )
-        + total_action_penalty
+        # + total_action_penalty
     )
 
     success_reward = parameter_dict["success_reward"]
-    reward = torch.where(successes > 0, success_reward * torch.ones_like(reward) + reward, reward) 
 
     half_episode = max_steps.float() * 0.5
-    time_penalty_mask = current_steps.float() > half_episode
     time_progress = (current_steps.float() - half_episode) / (max_steps.float() - half_episode)
-    time_penalty = -parameter_dict["time_penalty_magnitude"] * time_progress  
-    reward = torch.where(time_penalty_mask, reward + time_penalty, reward)
+    time_penalty = torch.where(time_progress > 0, - parameter_dict["time_penalty_magnitude"] * time_progress, torch.zeros_like(time_progress))  
 
     # early time reward
-    early_time_reward_mask = current_steps.float() < half_episode
-    early_time_reward = parameter_dict["early_time_reward_magnitude"] * (1.0 + time_progress)
-    reward = torch.where((early_time_reward_mask) & (successes > 0), reward + early_time_reward, reward)
+    early_time_reward = torch.where(
+        torch.logical_and(time_progress < 0, successes > 0),
+        parameter_dict["early_time_reward_magnitude"] * success_reward * (0.5 - time_progress),
+        torch.zeros_like(base_reward)
+    )    
+    collision_penalty = torch.where(
+        torch.logical_and(crashes > 0, successes < 1),
+        parameter_dict["collision_penalty"],
+        torch.zeros_like(base_reward)
+    )
 
-    reward[:] = torch.where(
-        torch.logical_and(crashes > 0, successes < 1), 
-        parameter_dict["collision_penalty"] * torch.ones_like(reward),
+    reward = base_reward + time_penalty + early_time_reward
+    reward = torch.where(
+        torch.logical_and(crashes > 0, successes < 1),
+        collision_penalty,
         reward,
     )
-    return reward, crashes
+
+    components = {
+        'pos_reward': pos_reward,
+        'very_close_to_goal_reward': very_close_to_goal_reward,
+        'getting_closer_reward': getting_closer_reward,
+        # 'distance_from_goal_reward': distance_from_goal_reward,
+        # 'ang_vel_reward': ang_vel_reward,
+        'velocity_reward': velocity_reward,
+        # 'action_diff_penalty': action_diff_penalty,
+        # 'absolute_action_penalty': absolute_action_penalty,
+        'success_reward': early_time_reward,
+        'time_penalty': time_penalty,
+        'collision_penalty': collision_penalty,
+    }
+    return reward, crashes, components

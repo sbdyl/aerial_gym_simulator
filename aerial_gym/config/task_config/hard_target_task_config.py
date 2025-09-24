@@ -27,10 +27,11 @@ class task_config:
     target_max_ratio = [0.94, 0.90, 0.90]  # target ratio w.r.t environment bounds in x,y,z
 
     max_speed = 2.0
+    target_speed = 1.0
     reward_parameters = {
         "pos_reward_magnitude": 5.0,
         "pos_reward_exponent": 1.0 / 3.5,
-        "max_velocity_reward_magnitude": 0.5,
+        "max_velocity_reward_magnitude": 0.1,
         "max_velocity_reward_exponent": 1.0 / 2.5,
         "very_close_to_goal_reward_magnitude": 5.0,
         "very_close_to_goal_reward_exponent": 2.0,
@@ -47,10 +48,10 @@ class task_config:
         "z_absolute_action_penalty_exponent": 1.0,
         "yawrate_absolute_action_penalty_magnitude": 1.5,
         "yawrate_absolute_action_penalty_exponent": 2.0,
-        "collision_penalty": -500.0,
+        "collision_penalty": -150.0,
         "success_reward": 500.0,
         "time_penalty_magnitude": 1.5,
-        "early_time_reward_magnitude": 300,
+        "early_time_reward_magnitude": 1.0,
     }
 
     class vae_config:
